@@ -30,9 +30,9 @@ async def on_ready():
     except Exception as e:
         print(f"Erro ao sincronizar comandos: {e}")
 
-    # limpar_expirados_diariamente.start()
+    limpar_expirados_diariamente.start()
     disparo_automatico_steam.start()
-    # disparo_automatico_free.start()
+    disparo_automatico_free.start()
     
 @bot.tree.command(
     name="steam_ofertas",
