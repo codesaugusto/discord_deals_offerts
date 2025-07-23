@@ -1,0 +1,106 @@
+{
+  "steam": [
+    {
+      "nome": "Warhammer 40,000: Space Marine 2",
+      "preco_antigo": 199.9,
+      "preco": 109.94,
+      "desconto": 45,
+      "link": "https://store.steampowered.com/app/2183900",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2183900/034c9bfdc39c8fb047915fcf13317b71305bcac0/header_alt_assets_2.jpg?t=1751643527",
+      "data_fim": 1754326800,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "Persona 3 Reload",
+      "preco_antigo": 299.9,
+      "preco": 134.95,
+      "desconto": 55,
+      "link": "https://store.steampowered.com/app/2161700",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/2161700/header.jpg?t=1744328458",
+      "data_fim": 1753376400,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "Clair Obscur: Expedition 33",
+      "preco_antigo": 199.0,
+      "preco": 179.1,
+      "desconto": 10,
+      "link": "https://store.steampowered.com/app/1903340",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1903340/be3305b02d4db0dffa3458537118423bf2792d7e/header.jpg?t=1751536664",
+      "data_fim": 1753808400,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "Lies of P",
+      "preco_antigo": 249.9,
+      "preco": 124.95,
+      "desconto": 50,
+      "link": "https://store.steampowered.com/app/1627720",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1627720/header.jpg?t=1749445998",
+      "data_fim": 1753462800,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "Persona 5 Royal",
+      "preco_antigo": 249.9,
+      "preco": 99.96,
+      "desconto": 60,
+      "link": "https://store.steampowered.com/app/1687950",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1687950/header.jpg?t=1733297467",
+      "data_fim": 1753376400,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "No Man's Sky",
+      "preco_antigo": 162.0,
+      "preco": 64.8,
+      "desconto": 60,
+      "link": "https://store.steampowered.com/app/275850",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/275850/7522f606188f14b7273b91056bf824caaf2fb5b9/header_alt_assets_25.jpg?t=1749200432",
+      "data_fim": 1753549200,
+      "data_disparo": 1753305966
+    },
+    {
+      "nome": "Red Dead Redemption 2",
+      "preco_antigo": 299.9,
+      "preco": 74.97,
+      "desconto": 75,
+      "link": "https://store.steampowered.com/app/1174180",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/1174180/header.jpg?t=1720558643",
+      "data_fim": 1753376400,
+      "data_disparo": 1753307488
+    },
+    {
+      "nome": "Abiotic Factor",
+      "preco_antigo": 101.99,
+      "preco": 81.59,
+      "desconto": 20,
+      "link": "https://store.steampowered.com/app/427410",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/427410/62bb338ff214d4fde1a07f0f768082832a8c2d0a/header.jpg?t=1753210576",
+      "data_fim": 1753808400,
+      "data_disparo": 1753307488
+    },
+    {
+      "nome": "Grand Theft Auto V Enhanced",
+      "preco_antigo": 224.9,
+      "preco": 98.95,
+      "desconto": 56,
+      "link": "https://store.steampowered.com/app/3240220",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/3240220/header.jpg?t=1752701585",
+      "data_fim": 1753376400,
+      "data_disparo": 1753307488
+    },
+    {
+      "nome": "DayZ",
+      "preco_antigo": 149.99,
+      "preco": 74.99,
+      "desconto": 50,
+      "link": "https://store.steampowered.com/app/221100",
+      "banner": "https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/221100/header.jpg?t=1752482358",
+      "data_fim": 1753722000,
+      "data_disparo": 1753307488
+    }
+  ],
+  "epic": [],
+  "steam_gratis": []
+}

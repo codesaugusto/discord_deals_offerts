@@ -1,0 +1,15 @@
+# Arquivos de ambiente
+.env
+
+# __pycache__ e arquivos temporários do Python
+__pycache__/
+*.pyc
+
+# Configurações do VSCode (opcional)
+.vscode/
+
+# Arquivos de log
+*.log
+
+# Dependências (se usar virtualenv)
+venv/
