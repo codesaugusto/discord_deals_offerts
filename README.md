@@ -41,15 +41,6 @@ Os dados coletados podem ser:
 
 ---
 
-## 🖼️ Demonstração
-
-<div align="center">
-   <img alt="Preview 1" src="https://imgur.com/vnfp7Il.jpeg" width="300px">
-   <img alt="Preview 2" src="https://imgur.com/NleohOU.jpg" width="390px">
-</div>
-
----
-
 ## 🚀 Funcionalidades
 
 * 🔍 Monitoramento automático de ofertas
