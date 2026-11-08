@@ -366,8 +366,45 @@ class SteamScraper:
             return []
 
 class EpicScraper:
+    HASH_SLUG = re.compile(r"^[0-9a-f]{32}$")
+
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
+
+    @classmethod
+    def _slug_pagina(cls, elem: Dict) -> str:
+        """Descobre o slug real da página do produto na Epic Games Store.
+
+        O campo `urlSlug` costuma vir como hash (ex.: "7ca01ab906ad4eff92d4ed1efa5fbfcb"),
+        que gera link 404. O slug usado pela loja está em offerMappings/catalogNs.
+        """
+        def extrair(mappings) -> str:
+            if not isinstance(mappings, list):
+                return ""
+            for mapping in mappings:
+                if isinstance(mapping, dict) and mapping.get("pageType") == "productHome" and mapping.get("pageSlug"):
+                    return mapping["pageSlug"]
+            for mapping in mappings:
+                if isinstance(mapping, dict) and mapping.get("pageSlug"):
+                    return mapping["pageSlug"]
+            return ""
+
+        product_slug = elem.get("productSlug") or ""
+        if product_slug:
+            product_slug = product_slug.split("/")[0]
+
+        candidatos = [
+            extrair(elem.get("offerMappings")),
+            extrair((elem.get("catalogNs") or {}).get("mappings")),
+            product_slug,
+            elem.get("urlSlug") or "",
+        ]
+
+        for slug in candidatos:
+            slug = str(slug or "").strip()
+            if slug and not cls.HASH_SLUG.match(slug):
+                return slug
+        return ""
 
     async def __aenter__(self):
         self.session = aiohttp.ClientSession(headers={"Accept": "application/json"})
@@ -400,7 +437,7 @@ class EpicScraper:
                         if preco not in (0, "0"):
                             continue
 
-                        slug = elem.get("productSlug") or elem.get("urlSlug")
+                        slug = self._slug_pagina(elem)
                         if not slug:
                             continue
 
