@@ -3,14 +3,21 @@ import datetime
 import json
 from typing import Dict, List
 
-DB_FILE = "jogos_disparados.db"
+import os as _os
+
+# Usa caminho absoluto baseado no diretório do próprio script,
+# garantindo que o .db fique junto do código (onde o Discloud mantém os arquivos).
+DB_FILE = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "jogos_disparados.db")
 
 def get_connection():
     conn = sqlite3.connect(DB_FILE)
     conn.row_factory = sqlite3.Row
+    # WAL mode melhora concorrência e reduz risco de corrupção
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def init_db():
+    print(f"[DB] Inicializando banco em: {DB_FILE}")
     conn = get_connection()
     c = conn.cursor()
     c.execute('''
@@ -71,50 +78,46 @@ def carregar_disparados() -> Dict[str, List[Dict]]:
     conn.close()
     return dados
 
+def _preparar_item(item, campos):
+    """Garante que o dict tenha todos os campos esperados (com None para ausentes)."""
+    return {campo: item.get(campo) for campo in campos}
+
+
 def salvar_disparados(dados: Dict[str, List[Dict]]):
     conn = get_connection()
     c = conn.cursor()
-    c.execute("BEGIN TRANSACTION")
-    
+
+    CAMPOS_STEAM = ["nome", "preco_antigo", "preco", "desconto", "link", "banner", "data_fim", "data_disparo"]
+    CAMPOS_EPIC = ["nome", "link", "banner", "data_inicio", "data_fim", "data_disparo"]
+    CAMPOS_PROMO = ["nome", "preco_antigo", "preco", "desconto", "link", "banner", "data_fim", "data_disparo"]
+
     try:
         for key, items in dados.items():
             if not items:
                 continue
-            
+
             if key == "steam":
-                c.execute('''
-                    INSERT OR REPLACE INTO steam (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
-                    VALUES (:nome, :preco_antigo, :preco, :desconto, :link, :banner, :data_fim, :data_disparo)
-                ''')
                 c.executemany('''
-                    INSERT OR REPLACE INTO steam (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
+                    INSERT OR IGNORE INTO steam (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
                     VALUES (:nome, :preco_antigo, :preco, :desconto, :link, :banner, :data_fim, :data_disparo)
-                ''', [{k: v for k, v in item.items()} for item in items])
+                ''', [_preparar_item(item, CAMPOS_STEAM) for item in items])
 
             elif key == "epic":
-                c.execute('''
-                    INSERT OR REPLACE INTO epic (nome, link, banner, data_inicio, data_fim, data_disparo)
-                    VALUES (:nome, :link, :banner, :data_inicio, :data_fim, :data_disparo)
-                ''')
                 c.executemany('''
-                    INSERT OR REPLACE INTO epic (nome, link, banner, data_inicio, data_fim, data_disparo)
+                    INSERT OR IGNORE INTO epic (nome, link, banner, data_inicio, data_fim, data_disparo)
                     VALUES (:nome, :link, :banner, :data_inicio, :data_fim, :data_disparo)
-                ''', [{k: v for k, v in item.items()} for item in items])
+                ''', [_preparar_item(item, CAMPOS_EPIC) for item in items])
 
             elif key == "promocoes":
-                c.execute('''
-                    INSERT OR REPLACE INTO promocoes (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
-                    VALUES (:nome, :preco_antigo, :preco, :desconto, :link, :banner, :data_fim, :data_disparo)
-                ''')
                 c.executemany('''
-                    INSERT OR REPLACE INTO promocoes (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
+                    INSERT OR IGNORE INTO promocoes (nome, preco_antigo, preco, desconto, link, banner, data_fim, data_disparo)
                     VALUES (:nome, :preco_antigo, :preco, :desconto, :link, :banner, :data_fim, :data_disparo)
-                ''', [{k: v for k, v in item.items()} for item in items])
-        
-        c.execute("COMMIT")
+                ''', [_preparar_item(item, CAMPOS_PROMO) for item in items])
+
+        conn.commit()
         print("[INFO] Dados salvos no SQLite.")
     except Exception as e:
-        c.execute("ROLLBACK")
+        conn.rollback()
         print(f"[ERRO] Falha ao salvar no SQLite: {e}")
     finally:
         conn.close()

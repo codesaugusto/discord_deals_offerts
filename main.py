@@ -48,7 +48,7 @@ async def free_games(interaction: discord.Interaction):
     except Exception as e:
         print(f"[ERRO] free_games: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def disparo_promocoes():
     canal = bot.get_channel(CANAL_PROMOCOES_ID)
     if not canal:
@@ -60,16 +60,30 @@ async def disparo_promocoes():
         if mensagens_list:
             import datetime
             hoje = datetime.datetime.now()
-            validas = [m for m in mensagens_list if not (m.get("data_fim") and datetime.datetime.fromtimestamp(int(m["data_fim"])) < hoje)]
+            validas = []
+            for m in mensagens_list:
+                data_fim = m.get("data_fim")
+                if data_fim:
+                    try:
+                        ts = int(data_fim)
+                        if ts > 9999999999:
+                            ts //= 1000
+                        if datetime.datetime.fromtimestamp(ts) < hoje:
+                            continue
+                    except (ValueError, TypeError, OSError):
+                        pass
+                validas.append(m)
             if validas:
                 await mensagens.tratar_mensagens(validas, canal, tipo="promocao")
                 print(f"[INFO] {len(validas)} novas promoções enviadas.")
             else:
                 print("[INFO] Todas as promoções filtradas como expiradas.")
+        else:
+            print("[INFO] Nenhuma promoção nova encontrada.")
     except Exception as e:
         print(f"[ERRO] Disparo Promoções: {e}")
 
-@tasks.loop(minutes=5)
+@tasks.loop(minutes=10)
 async def disparo_free_games():
     canal = bot.get_channel(CANAL_JOGOS_GRATIS_ID)
     if not canal:
@@ -81,6 +95,8 @@ async def disparo_free_games():
         if mensagens_list:
             await mensagens.tratar_mensagens(mensagens_list, canal, tipo="gratis")
             print(f"[INFO] {len(mensagens_list)} novos jogos grátis enviados.")
+        else:
+            print("[INFO] Nenhum jogo grátis novo encontrado.")
     except Exception as e:
         print(f"[ERRO] Disparo Free Games: {e}")
 
