@@ -40,6 +40,10 @@ class IsThereAnyDealScraper:
         return str(int(data.timestamp()))
 
     def _extrair_promocao(self, item: Dict) -> Optional[Dict]:
+        # DLCs e pacotes podem abrir páginas de conteúdo adicional, não do jogo.
+        if item.get("type") != "game":
+            return None
+
         deal = item.get("deal") or {}
         link = deal.get("url") or ""
         if not link:
