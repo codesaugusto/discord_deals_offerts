@@ -78,8 +78,8 @@ class IsThereAnyDealScraper:
             "data_fim": self._para_epoch(deal.get("expiry")),
         }
 
-    async def fetch_featured(self, limit: int = 50, offset: int = 0) -> List[Dict]:
-        """Busca as promoções da Steam ordenadas pelo maior desconto."""
+    async def fetch_featured(self, limit: int = 20, offset: int = 0) -> List[Dict]:
+        """Busca ofertas ativas da Steam priorizando jogos em alta."""
         if not self.key:
             print("[IsThereAnyDeal] ITAD_KEY não configurada no .env; nenhuma promoção coletada.")
             return []
@@ -89,7 +89,8 @@ class IsThereAnyDealScraper:
             "key": self.key,
             "country": "BR",
             "shops": str(self.SHOP_STEAM),
-            "sort": "-cut",  # maiores descontos primeiro
+            "sort": "-trending",
+            "nondeals": "false",
             "limit": str(limit),
             "offset": str(max(0, offset)),
         }
@@ -245,9 +246,9 @@ class EpicScraper:
 # Funções de coleta assíncronas (compatíveis com smartpoller.py)
 async def coletar_promocoes_steam() -> List[Dict]:
     try:
-        limite = int(os.getenv("ITAD_LIMIT", "50"))
+        limite = int(os.getenv("ITAD_LIMIT", "20"))
     except ValueError:
-        limite = 50
+        limite = 20
 
     async with IsThereAnyDealScraper() as scraper:
         return await scraper.fetch_featured(limite)
