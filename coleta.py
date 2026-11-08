@@ -240,10 +240,12 @@ class SteamScraper:
                         preco_str = str(item.get("final_price", 0) / 100)
                         preco = float(preco_str) if preco_str.replace(".", "", 1).isdigit() else 0
                         if preco == 0:
+                            app_match = re.search(r'/app/(\d+)', item.get('url', ''))
+                            app_id = app_match.group(1) if app_match else "0"
                             jogos.append({
                                 "nome": item.get("name"),
                                 "link": item.get("url"),
-                                "banner": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{re.search(r'/app/(\d+)', item.get('url', '')).group(1)}",
+                                "banner": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/header.jpg",
                                 "data_fim": ""
                             })
                     except Exception:
