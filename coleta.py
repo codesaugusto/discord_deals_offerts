@@ -1,153 +1,353 @@
-import requests
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-import time
-import sys
-import persistencia
+import asyncio
+import aiohttp
+import os
 import re
+from typing import Dict, List, Optional
 
-sys.stdout.reconfigure(encoding='utf-8')
+class IsThereAnyDealScraper:
+    BASE_URL = "https://api.isthereanydeal.com/v01/deals"
 
-def coletar_promocoes_steam():
-    steam_url = "https://store.steampowered.com/api/featuredcategories/?cc=BR&l=portuguese"
-    steam_resp = requests.get(steam_url)
-    if steam_resp.status_code == 200:
-        steam_data = steam_resp.json()
-        steam_promos = [jogo for jogo in steam_data['specials']['items'] if jogo['discount_percent'] > 0]
-        resultado = []
-        for jogo in steam_promos:
-            resultado.append({
-                "nome": jogo.get('name'),
-                "preco_antigo": jogo.get('original_price', 0) / 100,
-                "preco": jogo.get('final_price', 0) / 100,
-                "desconto": jogo.get('discount_percent', 0),
-                "link": f"https://store.steampowered.com/app/{jogo.get('id')}",
-                "banner": jogo.get('header_image'),
-                "data_fim": jogo.get('discount_expiration', '')
-            })
-        return resultado
-    else:
-        return None
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.key = os.getenv("ITAD_KEY")
 
-def coletar_jogos_gratis_steam(qtd=5):
-    url = "https://store.steampowered.com/search/results/?query&maxprice=free&specials=1&supportedlang=brazilian&ndl=1&count=50&cc=BR&l=portuguese"
-    options = Options()
-    options.add_argument("--headless")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    driver = webdriver.Chrome(options=options)
-    driver.get(url)
-    time.sleep(3)  # Aguarda o carregamento da página
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(headers={"Accept": "application/json"})
+        return self
 
-    resultado = []
-    # Cada jogo está em um <a class="search_result_row">
-    jogos = driver.find_elements(By.XPATH, '//a[contains(@class, "search_result_row")]')
-    for jogo in jogos:
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+
+    def _normalizar_payload(self, payload):
+        if isinstance(payload, list):
+            return payload
+        if not isinstance(payload, dict):
+            return []
+
+        for key in ("list", "deals", "items", "games", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+        if "data" in payload and isinstance(payload["data"], dict):
+            return self._normalizar_payload(payload["data"])
+        if "data" in payload and isinstance(payload["data"], list):
+            return payload["data"]
+        return []
+
+    def _extrair_texto(self, item, *keys):
+        for key in keys:
+            value = item.get(key)
+            if value not in (None, ""):
+                return value
+        return ""
+
+    def _extrair_preco(self, item):
+        for key in ("price_new", "new_price", "price", "current_price", "amount"):
+            value = item.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+        return 0.0
+
+    def _extrair_preco_antigo(self, item):
+        for key in ("price_old", "old_price", "normal_price", "list_price"):
+            value = item.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+        return 0.0
+
+    def _extrair_desconto(self, item):
+        for key in ("cut", "discount", "sale", "save"):
+            value = item.get(key)
+            if value not in (None, ""):
+                return int(value)
+        old = self._extrair_preco_antigo(item)
+        new = self._extrair_preco(item)
+        if old and new and old > new:
+            return int(round(((old - new) / old) * 100))
+        return 0
+
+    def _extrair_link(self, item):
+        for key in ("url", "deal_url", "store_url", "link"):
+            value = item.get(key)
+            if value:
+                return value
+        game = item.get("game")
+        if isinstance(game, dict):
+            for key in ("url", "deal_url", "store_url", "link"):
+                value = game.get(key)
+                if value:
+                    return value
+        app_id = item.get("steam_id") or item.get("app_id") or item.get("steamAppId")
+        if app_id:
+            return f"https://store.steampowered.com/app/{app_id}"
+        return ""
+
+    def _extrair_banner(self, item):
+        for key in ("image", "image_url", "thumb", "banner", "icon"):
+            value = item.get(key)
+            if value:
+                return value
+        game = item.get("game")
+        if isinstance(game, dict):
+            for key in ("image", "image_url", "thumb", "banner"):
+                value = game.get(key)
+                if value:
+                    return value
+        return ""
+
+    async def fetch_featured(self, limit: int = 15) -> List[Dict]:
+        params = {
+            "country": "BR",
+            "limit": str(limit),
+            "sort": "price",
+            "shop": "steam",
+        }
+        if self.key:
+            params["key"] = self.key
         try:
-            nome = jogo.find_element(By.XPATH, './/span[contains(@class, "title")]').text.strip()
-            preco_antigo = jogo.find_element(By.XPATH, '//*[@class="discount_original_price"]').text.strip()
-            preco = jogo.find_element(By.XPATH, '//*[@class="discount_final_price"]').text.strip()
-            desconto = jogo.find_element(By.XPATH, '//*[@class="discount_pct"]').text.strip()
-            # Pega o desconto, se existir
-            try:
-                desconto = jogo.find_element(By.XPATH, './/div[contains(@class, "search_discount")]').text.strip()
-            except:
-                desconto = ""
-            # Pega o preço antigo e o preço atual
-            try:
-                preco_antigo = jogo.find_element(By.XPATH, './/strike').text.strip().replace("R$", "").replace(",", ".")
-                preco_antigo = float(preco_antigo)
-            except:
-                preco_antigo = 0.0
-            try:
-                preco = jogo.find_element(By.XPATH, '//*[@class="discount_final_price"]').text.strip()
-                if "Grátis" in preco or "R$0,00" in preco:
-                    preco = 0.0
-                else:
-                    preco = preco.replace("R$", "").replace(",", ".")
-                    preco = float(preco)
-            except:
-                preco = 0.0
-            # Só pega jogos com desconto de 100% (promoção grátis)
-            if "-100%" in desconto or preco == 0.0:
-                link = jogo.get_attribute("href")
-
-                # Usa regex para extrair o App ID da URL
-                match = re.search(r'/app/(\d+)', link)
-                if match:
-                    app_id = match.group(1)
-                    banner = f"https://cdn.cloudflare.steamstatic.com/steam/apps/{app_id}/header.jpg"
-                else:
-                    banner = ""
-
-                resultado.append({
-                    "nome": nome,
-                    "preco_antigo": preco_antigo,
-                    "preco": preco,
-                    "desconto": desconto,
-                    "link": link,
-                    "banner": banner,
-                    "data_fim": ""
-                })
-            if len(resultado) >= qtd:
-                break
+            async with self.session.get(f"{self.BASE_URL}/list/", params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                items = self._normalizar_payload(data)
+                promos = []
+                for item in items:
+                    link = self._extrair_link(item)
+                    if not link:
+                        continue
+                    preco = self._extrair_preco(item)
+                    preco_antigo = self._extrair_preco_antigo(item)
+                    desconto = self._extrair_desconto(item)
+                    if preco_antigo and preco_antigo > preco and desconto > 0:
+                        promos.append({
+                            "nome": self._extrair_texto(item, "title", "name", "game", "shop"),
+                            "preco_antigo": float(preco_antigo),
+                            "preco": float(preco),
+                            "desconto": desconto,
+                            "link": link,
+                            "banner": self._extrair_banner(item),
+                            "data_fim": self._extrair_texto(item, "expiry", "end", "expiration", "date")
+                        })
+                return promos[:limit]
         except Exception as e:
-            print(f"[DEBUG] Erro ao coletar jogo: {e}")
-            continue
-    driver.quit()
-    return resultado
+            print(f"[IsThereAnyDeal] Erro ao buscar promoções: {e}")
+            return []
 
-def coletar_jogos_gratis_epic(qtd=5):
-    epic_url = "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=pt-BR&country=BR&allowCountries=BR"
-    epic_resp = requests.get(epic_url)
-    jogos_gratis = []
-    if epic_resp.status_code == 200:
-        epic_data = epic_resp.json()
-        elementos = epic_data['data']['Catalog']['searchStore']['elements']
-        for jogo in elementos:
-            try:
-                preco = jogo['price']['totalPrice']['discountPrice']
-                if preco == 0:
-                    imagens = jogo.get('keyImages', [])
-                    banner = None
-                    for img in imagens:
-                        if img.get('type') == 'OfferImageWide':
-                            banner = img.get('url')
-                            break
-                    if not banner and imagens:
-                        banner = imagens[0].get('url')
-                    # Busca datas de início e fim da promoção
-                    data_inicio = ""
-                    data_fim = ""
-                    if jogo.get('promotions') and jogo['promotions'].get('promotionalOffers'):
-                        ofertas = jogo['promotions']['promotionalOffers']
-                        if ofertas and ofertas[0].get('offers'):
-                            offer = ofertas[0]['offers'][0]
-                            data_inicio = offer.get('startDate', '')
-                            data_fim = offer.get('endDate', '')
-                    jogos_gratis.append({
-                        "nome": jogo.get('title', 'Título desconhecido'),
-                        "link": f"https://store.epicgames.com/pt-BR/p/{jogo.get('productSlug') or jogo.get('urlSlug') or ''}",
-                        "banner": banner,
-                        "data_inicio": data_inicio,
-                        "data_fim": data_fim
+    async def fetch_free(self, limit: int = 5) -> List[Dict]:
+        params = {
+            "country": "BR",
+            "limit": str(limit * 3),
+            "shop": "steam",
+            "sort": "price",
+        }
+        if self.key:
+            params["key"] = self.key
+        try:
+            async with self.session.get(f"{self.BASE_URL}/list/", params=params, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return []
+                data = await resp.json()
+                items = self._normalizar_payload(data)
+                jogos = []
+                for item in items:
+                    if len(jogos) >= limit:
+                        break
+                    preco = self._extrair_preco(item)
+                    if preco != 0:
+                        continue
+                    link = self._extrair_link(item)
+                    if not link:
+                        continue
+                    jogos.append({
+                        "nome": self._extrair_texto(item, "title", "name", "game", "shop"),
+                        "link": link,
+                        "banner": self._extrair_banner(item),
+                        "data_fim": self._extrair_texto(item, "expiry", "end", "expiration", "date"),
                     })
-            except (KeyError, TypeError):
-                continue
-            if len(jogos_gratis) == qtd:
-                break
-    return jogos_gratis
+                return jogos
+        except Exception as e:
+            print(f"[IsThereAnyDeal] Erro ao buscar grátis: {e}")
+            return []
 
-def buscar_jogos_gratis_steam(qtd=5):
-    dados = persistencia.carregar_disparados()
-    jogos = dados.get("steam_gratis", [])
-    if jogos:
-        print("[DEBUG] Carregando jogos grátis do arquivo.")
-        return jogos[:qtd]
-    print("[DEBUG] Nenhum jogo grátis salvo, fazendo scraping...")
-    jogos = coletar_jogos_gratis_steam(qtd)
-    if jogos:
-        dados["steam_gratis"] = jogos
-        persistencia.salvar_disparados(dados)
-    return jogos[:qtd]
+class SteamScraper:
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(headers={"Accept": "application/json"})
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+
+    async def fetch_featured(self) -> Optional[List[Dict]]:
+        try:
+            async with self.session.get(
+                "https://store.steampowered.com/api/featuredcategories?cc=BR&l=portuguese",
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                if resp.status != 200:
+                    return None
+                if "application/json" not in content_type.lower():
+                    print("[SteamScraper] Resposta HTML/anti-bot em featured; ignorando.")
+                    return None
+                data = await resp.json()
+                specials = data.get("specials", {})
+                items = specials.get("items", [])
+                promos = []
+                for item in items:
+                    discount = item.get("discount_percent", 0)
+                    if discount > 0:
+                        promos.append({
+                            "nome": item.get("name"),
+                            "preco_antigo": float(item.get("original_price", 0) / 100) if item.get("original_price") else 0,
+                            "preco": float(item.get("final_price", 0) / 100) if item.get("final_price") else 0,
+                            "desconto": discount,
+                            "link": f"https://store.steampowered.com/app/{item.get('id')}",
+                            "banner": item.get("header_image"),
+                            "data_fim": item.get("discount_expiration", "")
+                        })
+                return promos[:15]
+        except (aiohttp.ContentTypeError, ValueError, TypeError) as e:
+            print(f"[SteamScraper] Resposta inválida do Steam em featured: {e}")
+            return None
+        except Exception as e:
+            print(f"[SteamScraper] Erro ao buscar promoções: {e}")
+            return None
+
+    async def fetch_free(self, limit: int) -> List[Dict]:
+        try:
+            async with self.session.get(
+                "https://store.steampowered.com/search/results/?query&maxprice=free&specials=1&supportedlang=brazilian&ndl=1&count=50&cc=BR&l=portuguese",
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                content_type = resp.headers.get("Content-Type", "")
+                if resp.status != 200:
+                    return []
+                if "application/json" not in content_type.lower():
+                    print("[SteamScraper] Resposta bloqueada/inválida do Steam; ignorando fallback.")
+                    return []
+                data = await resp.json()
+                results = data.get("items", [])
+                jogos = []
+                for item in results:
+                    if len(jogos) >= limit:
+                        break
+                    try:
+                        preco_str = str(item.get("final_price", 0) / 100)
+                        preco = float(preco_str) if preco_str.replace(".", "", 1).isdigit() else 0
+                        if preco == 0:
+                            jogos.append({
+                                "nome": item.get("name"),
+                                "link": item.get("url"),
+                                "banner": f"https://cdn.cloudflare.steamstatic.com/steam/apps/{re.search(r'/app/(\d+)', item.get('url', '')).group(1)}",
+                                "data_fim": ""
+                            })
+                    except Exception:
+                        continue
+                return jogos
+        except (aiohttp.ContentTypeError, ValueError, TypeError) as e:
+            print(f"[SteamScraper] Resposta inválida do Steam em free search: {e}")
+            return []
+        except Exception as e:
+            print(f"[SteamScraper] Erro ao buscar grátis: {e}")
+            return []
+
+class EpicScraper:
+    def __init__(self):
+        self.session: Optional[aiohttp.ClientSession] = None
+
+    async def __aenter__(self):
+        self.session = aiohttp.ClientSession(headers={"Accept": "application/json"})
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        if self.session:
+            await self.session.close()
+
+    async def fetch_free(self, limit: int) -> List[Dict]:
+        session = self.session or aiohttp.ClientSession(headers={"Accept": "application/json"})
+        should_close = self.session is None
+        try:
+            async with session.get(
+                "https://store-site-backend-static.ak.epicgames.com/freeGamesPromotions?locale=pt-BR&country=BR&allowCountries=BR",
+                timeout=aiohttp.ClientTimeout(total=10)
+            ) as resp:
+                if resp.status != 200:
+                    return []
+
+                data = await resp.json()
+                elementos = data.get("data", {}).get("Catalog", {}).get("searchStore", {}).get("elements", [])
+                jogos = []
+                for elem in elementos:
+                    if len(jogos) >= limit:
+                        break
+                    try:
+                        price_block = (elem.get("price") or {}).get("totalPrice") or {}
+                        preco = price_block.get("discountPrice")
+                        if preco not in (0, "0"):
+                            continue
+
+                        slug = elem.get("productSlug") or elem.get("urlSlug")
+                        if not slug:
+                            continue
+
+                        imagens = elem.get("keyImages") or []
+                        banner = next(
+                            (img.get("url") for img in imagens if img.get("type") == "OfferImageWide"),
+                            imagens[0].get("url") if imagens else None,
+                        )
+
+                        promocoes = elem.get("promotions") or {}
+                        promo_offers = promocoes.get("promotionalOffers") or []
+                        data_inicio = ""
+                        data_fim = ""
+                        if promo_offers:
+                            offers = promo_offers[0].get("promotionalOffers") or []
+                            if offers:
+                                data_inicio = offers[0].get("startDate", "")
+                                data_fim = offers[0].get("endDate", "")
+
+                        jogos.append({
+                            "nome": elem.get("title"),
+                            "link": f"https://store.epicgames.com/pt-BR/p/{slug}",
+                            "banner": banner,
+                            "data_inicio": data_inicio,
+                            "data_fim": data_fim,
+                        })
+                    except Exception:
+                        continue
+                return jogos[:limit]
+        except Exception as e:
+            print(f"[EpicScraper] Erro ao buscar grátis: {e}")
+            return []
+        finally:
+            if should_close:
+                await session.close()
+
+# Funções de coleta assíncronas (compatíveis com smartpoller.py)
+async def coletar_promocoes_steam() -> Optional[List[Dict]]:
+    async with IsThereAnyDealScraper() as scraper:
+        deals = await scraper.fetch_featured(15)
+        if deals:
+            return deals
+
+    async with SteamScraper() as scraper:
+        return await scraper.fetch_featured()
+
+async def coletar_jogos_gratis_steam(limit: int = 5) -> List[Dict]:
+    print("[INFO] Steam free-games endpoint desativado: fonte bloqueada pelo anti-bot.")
+    return []
+
+async def coletar_jogos_gratis_epic(limit: int = 5) -> List[Dict]:
+    async with EpicScraper() as scraper:
+        return await scraper.fetch_free(limit)
+
+if __name__ == "__main__":
+    # Teste rápido
+    asyncio.run(coletar_promocoes_steam())
+    asyncio.run(coletar_jogos_gratis_steam(3))
+    asyncio.run(coletar_jogos_gratis_epic(3))
