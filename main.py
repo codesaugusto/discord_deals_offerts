@@ -48,7 +48,7 @@ async def free_games(interaction: discord.Interaction):
     except Exception as e:
         print(f"[ERRO] free_games: {e}")
 
-@tasks.loop(minutes=10)
+@tasks.loop(seconds=60)
 async def disparo_promocoes():
     canal = bot.get_channel(CANAL_PROMOCOES_ID)
     if not canal:
@@ -83,7 +83,7 @@ async def disparo_promocoes():
     except Exception as e:
         print(f"[ERRO] Disparo Promoções: {e}")
 
-@tasks.loop(minutes=10)
+@tasks.loop(seconds=60)
 async def disparo_free_games():
     canal = bot.get_channel(CANAL_JOGOS_GRATIS_ID)
     if not canal:
