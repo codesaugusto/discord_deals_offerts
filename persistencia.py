@@ -122,22 +122,62 @@ def salvar_disparados(dados: Dict[str, List[Dict]]):
     finally:
         conn.close()
 
+def _parse_data_fim(valor):
+    """Converte data_fim em timestamp (epoch UTC) ou None se não der para interpretar.
+
+    Formatos encontrados no banco:
+    - Steam/promoções: epoch em segundos, como texto ("1795111200");
+    - Epic: ISO 8601 em UTC ("2026-11-12T16:00:00.000Z");
+    - vazio/None quando a loja não informa prazo.
+    """
+    if valor is None:
+        return None
+
+    if isinstance(valor, (int, float)):
+        ts = float(valor)
+    else:
+        texto = str(valor).strip()
+        if not texto:
+            return None
+        try:
+            # Timestamp numérico (segundos ou milissegundos)
+            ts = float(texto)
+        except ValueError:
+            try:
+                dt = datetime.datetime.fromisoformat(texto.replace("Z", "+00:00"))
+            except ValueError:
+                return None
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=datetime.timezone.utc)
+            return dt.timestamp()
+
+    # Alguns retornos vêm em milissegundos
+    if ts > 9999999999:
+        ts /= 1000
+    return ts
+
+
 def limpar_expirados():
     conn = get_connection()
     c = conn.cursor()
-    c.execute("BEGIN TRANSACTION")
-    
-    data_atual = datetime.datetime.now()
-    
+
+    # SQLite não consegue converter as duas representações de data_fim, então a
+    # comparação de "expirado" é feita aqui em Python.
+    agora = datetime.datetime.now(datetime.timezone.utc).timestamp()
+    removidos = 0
+
     try:
         for key, table in [("steam", "steam"), ("epic", "epic"), ("promocoes", "promocoes")]:
-            # 1. Remove itens expirados (data_fim < hoje)
-            c.execute(f'''
-                DELETE FROM {table}
-                WHERE data_fim IS NOT NULL 
-                AND strftime('%s', 'now') > strftime('%s', COALESCE(data_fim, 0))
-            ''')
-            
+            # 1. Remove itens expirados (data_fim < agora)
+            expirados = []
+            for row in c.execute(f"SELECT id, data_fim FROM {table} WHERE data_fim IS NOT NULL"):
+                fim = _parse_data_fim(row["data_fim"])
+                if fim is not None and fim < agora:
+                    expirados.append((row["id"],))
+            if expirados:
+                c.executemany(f"DELETE FROM {table} WHERE id = ?", expirados)
+                removidos += len(expirados)
+
             # 2. Remove itens "mortos" (já disparados há mais de 1 semana)
             # Isso evita acumulação de históricos muito antigos que ocupam espaço.
             c.execute(f'''
@@ -145,11 +185,12 @@ def limpar_expirados():
                 WHERE data_disparo IS NOT NULL
                 AND (strftime('%s', 'now') - data_disparo) > 7 * 24 * 60 * 60
             ''')
-        
+            removidos += c.rowcount
+
         conn.commit()
-        print("[INFO] Dados expirados e antigos limpos do SQLite.")
+        print(f"[INFO] {removidos} registro(s) expirado(s)/antigo(s) removido(s) do SQLite.")
     except Exception as e:
-        c.execute("ROLLBACK")
+        conn.rollback()
         print(f"[ERRO] Falha ao limpar dados: {e}")
     finally:
         conn.close()

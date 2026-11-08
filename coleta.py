@@ -171,6 +171,10 @@ class IsThereAnyDealScraper:
             return []
 
 class SteamScraper:
+    STEAM_APP_URL = "https://store.steampowered.com/app/{id}"
+    STEAM_SUB_URL = "https://store.steampowered.com/sub/{id}"
+    PACKAGE_DETAILS_URL = "https://store.steampowered.com/api/packagedetails"
+
     def __init__(self):
         self.session: Optional[aiohttp.ClientSession] = None
 
@@ -181,6 +185,93 @@ class SteamScraper:
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         if self.session:
             await self.session.close()
+
+    @staticmethod
+    def _tokens(nome: str) -> set:
+        return set(re.findall(r"[a-z0-9]+", (nome or "").lower()))
+
+    def _melhor_app_do_pacote(self, nome_pacote: str, apps: List[Dict]) -> Optional[int]:
+        """Escolhe, entre os apps de um pacote, o que corresponde ao jogo principal.
+
+        O Steam não informa qual app é o jogo base, então usamos o nome:
+        1. nome igual ao do pacote;
+        2. nome que seja prefixo do pacote (ex.: "Dying Light" em
+           "Dying Light Essentials Edition" = jogo base + DLCs);
+        3. maior quantidade de palavras em comum.
+        Se o pacote tiver vários jogos diferentes (ex.: trilogia), devolve None
+        para que o link do pacote (/sub/) seja usado em vez de um jogo aleatório.
+        """
+        if not apps:
+            return None
+
+        nome_alvo = (nome_pacote or "").strip().lower()
+        candidatos = []
+        for app in apps:
+            app_id = app.get("id")
+            nome = (app.get("name") or "").strip()
+            if app_id and nome:
+                candidatos.append((int(app_id), nome))
+        if not candidatos:
+            return None
+
+        for app_id, nome in candidatos:
+            if nome.lower() == nome_alvo:
+                return app_id
+
+        prefixos = [(app_id, nome) for app_id, nome in candidatos if nome_alvo.startswith(nome.lower())]
+        if prefixos:
+            prefixos.sort(key=lambda par: len(par[1]), reverse=True)
+            return prefixos[0][0]
+
+        tokens_pacote = self._tokens(nome_pacote)
+        scores = sorted(
+            ((len(tokens_pacote & self._tokens(nome)), app_id) for app_id, nome in candidatos),
+            reverse=True,
+        )
+        if len(scores) > 1 and scores[0][0] == scores[1][0]:
+            return None
+        return scores[0][1] if scores[0][0] > 0 else None
+
+    async def _resolver_link_pacote(self, package_id: str) -> Optional[str]:
+        """Retorna o link do jogo (app) de um pacote, ou None se não achar."""
+        params = {"packageids": package_id, "cc": "BR", "l": "portuguese"}
+        async with self.session.get(
+            self.PACKAGE_DETAILS_URL,
+            params=params,
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as resp:
+            if resp.status != 200:
+                return None
+            data = await resp.json(content_type=None)
+            info = (data.get(package_id) or {}).get("data") or {}
+            app_id = self._melhor_app_do_pacote(info.get("name") or "", info.get("apps") or [])
+            return self.STEAM_APP_URL.format(id=app_id) if app_id else None
+
+    async def _resolver_links_pacotes(self, items: List[Dict]) -> Dict[str, str]:
+        """Converte ids de pacote (type=1) no link do app do jogo correspondente."""
+        ids = [
+            str(item.get("id"))
+            for item in items
+            if item.get("id") and int(item.get("type") or 0) == 1
+        ]
+        if not ids:
+            return {}
+
+        # A API do Steam só aceita um packageid por requisição.
+        resultados = await asyncio.gather(
+            *(self._resolver_link_pacote(package_id) for package_id in ids),
+            return_exceptions=True,
+        )
+
+        links: Dict[str, str] = {}
+        for package_id, resultado in zip(ids, resultados):
+            if isinstance(resultado, Exception):
+                print(f"[SteamScraper] Erro ao resolver pacote {package_id}: {resultado}")
+                continue
+            if resultado:
+                links[package_id] = resultado
+
+        return links
 
     async def fetch_featured(self) -> Optional[List[Dict]]:
         try:
@@ -197,19 +288,35 @@ class SteamScraper:
                 data = await resp.json()
                 specials = data.get("specials", {})
                 items = specials.get("items", [])
+                links_pacotes = await self._resolver_links_pacotes(items)
                 promos = []
+                vistos = set()
                 for item in items:
                     discount = item.get("discount_percent", 0)
-                    if discount > 0:
-                        promos.append({
-                            "nome": item.get("name"),
-                            "preco_antigo": float(item.get("original_price", 0) / 100) if item.get("original_price") else 0,
-                            "preco": float(item.get("final_price", 0) / 100) if item.get("final_price") else 0,
-                            "desconto": discount,
-                            "link": f"https://store.steampowered.com/app/{item.get('id')}",
-                            "banner": item.get("header_image"),
-                            "data_fim": item.get("discount_expiration", "")
-                        })
+                    app_id = item.get("id")
+                    if discount <= 0 or not app_id:
+                        continue
+
+                    # type 0 = aplicativo (appid); type 1 = pacote/edição (subid).
+                    # Usar /app/ com um subid leva a uma página de outro jogo/inexistente.
+                    if int(item.get("type") or 0) == 0:
+                        link = self.STEAM_APP_URL.format(id=app_id)
+                    else:
+                        link = links_pacotes.get(str(app_id)) or self.STEAM_SUB_URL.format(id=app_id)
+
+                    if link in vistos:
+                        continue
+                    vistos.add(link)
+
+                    promos.append({
+                        "nome": item.get("name"),
+                        "preco_antigo": float(item.get("original_price", 0) / 100) if item.get("original_price") else 0,
+                        "preco": float(item.get("final_price", 0) / 100) if item.get("final_price") else 0,
+                        "desconto": discount,
+                        "link": link,
+                        "banner": item.get("header_image"),
+                        "data_fim": item.get("discount_expiration", "")
+                    })
                 return promos[:15]
         except (aiohttp.ContentTypeError, ValueError, TypeError) as e:
             print(f"[SteamScraper] Resposta inválida do Steam em featured: {e}")
