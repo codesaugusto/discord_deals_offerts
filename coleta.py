@@ -91,44 +91,57 @@ class IsThereAnyDealScraper:
             "shops": str(self.SHOP_STEAM),
             "sort": "-trending",
             "nondeals": "false",
-            "limit": str(limit),
-            "offset": str(max(0, offset)),
+            "limit": str(self.LIMITE_MAXIMO),
         }
-
-        try:
-            async with self.session.get(
-                self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)
-            ) as resp:
-                if resp.status in (401, 403):
-                    print(f"[IsThereAnyDeal] Chave inválida ou sem permissão (HTTP {resp.status}). Confira ITAD_KEY.")
-                    return []
-                if resp.status == 429:
-                    print("[IsThereAnyDeal] Limite de requisições atingido (HTTP 429).")
-                    return []
-                if resp.status != 200:
-                    print(f"[IsThereAnyDeal] Resposta inesperada (HTTP {resp.status}).")
-                    return []
-                if "application/json" not in resp.headers.get("Content-Type", "").lower():
-                    print("[IsThereAnyDeal] Resposta não-JSON; ignorando.")
-                    return []
-
-                data = await resp.json(content_type=None)
-        except Exception as e:
-            print(f"[IsThereAnyDeal] Erro ao buscar promoções: {e}")
-            return []
-
-        if not isinstance(data, dict):
-            print("[IsThereAnyDeal] Formato de resposta inesperado; ignorando.")
-            return []
 
         promos = []
         vistos = set()
-        for item in data.get("list") or []:
-            promo = self._extrair_promocao(item)
-            if not promo or promo["link"] in vistos:
-                continue
-            vistos.add(promo["link"])
-            promos.append(promo)
+        proximo_offset = max(0, int(offset))
+        while len(promos) < limit:
+            params["offset"] = str(proximo_offset)
+            try:
+                async with self.session.get(
+                    self.BASE_URL, params=params, timeout=aiohttp.ClientTimeout(total=20)
+                ) as resp:
+                    if resp.status in (401, 403):
+                        print(f"[IsThereAnyDeal] Chave inválida ou sem permissão (HTTP {resp.status}). Confira ITAD_KEY.")
+                        return []
+                    if resp.status == 429:
+                        print("[IsThereAnyDeal] Limite de requisições atingido (HTTP 429).")
+                        return []
+                    if resp.status != 200:
+                        print(f"[IsThereAnyDeal] Resposta inesperada (HTTP {resp.status}).")
+                        return []
+                    if "application/json" not in resp.headers.get("Content-Type", "").lower():
+                        print("[IsThereAnyDeal] Resposta não-JSON; ignorando.")
+                        return []
+
+                    data = await resp.json(content_type=None)
+            except Exception as e:
+                print(f"[IsThereAnyDeal] Erro ao buscar promoções: {e}")
+                return []
+
+            if not isinstance(data, dict):
+                print("[IsThereAnyDeal] Formato de resposta inesperado; ignorando.")
+                return []
+
+            itens = data.get("list") or []
+            if not isinstance(itens, list):
+                print("[IsThereAnyDeal] Lista de ofertas em formato inesperado; ignorando.")
+                return []
+
+            for item in itens:
+                promo = self._extrair_promocao(item)
+                if not promo or promo["link"] in vistos:
+                    continue
+                vistos.add(promo["link"])
+                promos.append(promo)
+                if len(promos) >= limit:
+                    break
+
+            if len(itens) < self.LIMITE_MAXIMO:
+                break
+            proximo_offset += len(itens)
 
         return promos[:limit]
 
